@@ -478,6 +478,14 @@
                                     <p class="text-secondary text-sm mt-1">o haz clic para seleccionar</p>
                                     <input type="file" class="hidden" id="file-upload">
                                 </div>
+                                <div class="flex flex-wrap gap-3 justify-between items-center mt-4">
+                                    <div class="flex gap-3">
+                                        <button id="btn-extract-seminario" class="bg-accent-2/20 text-accent-2 px-4 py-2 rounded-lg text-sm hover:bg-accent-2/30">Extraer nombres (columna B) de hoja "DISRIBUCIÓN SEMINARIO"</button>
+                                        <button id="btn-import-seminario" class="hidden bg-accent-1 text-white px-4 py-2 rounded-lg text-sm">Agregar a Estudiantes</button>
+                                    </div>
+                                    <button id="btn-download-seminario" class="hidden bg-surface border border-default px-4 py-2 rounded-lg text-sm">Descargar CSV</button>
+                                </div>
+                                <div id="seminario-output" class="mt-4 text-sm text-primary"></div>
                                 <div class="text-right mt-8">
                                     <button id="btn-goto-step2" class="bg-accent-1 text-white px-6 py-2 rounded-lg font-medium hover:brightness-110 transition-transform hover:scale-102">Siguiente</button>
                                 </div>
@@ -817,6 +825,20 @@
         const byIdSel = id => document.getElementById(id);
         const qs = (sel, root=document) => root.querySelector(sel);
         const qsa = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+        const SEM_LABELS = ['PRIMER SEMESTRE','SEGUNDO SEMESTRE','TERCER SEMESTRE','CUARTO SEMESTRE','QUINTO SEMESTRE'];
+        // Regla: 2 retardos = 1 falta (R = 0.5 falta, F = 1 falta)
+        const faltaEquivalente = (estado) => estado === 'F' ? 1 : (estado === 'R' ? 0.5 : 0);
+        const totalFaltasEquivalentes = (groupId=null) => {
+          // Suma en todo el histórico (o por grupo si se indica)
+          return DataStore.state.attendance
+            .filter(a => !groupId || a.groupId === groupId)
+            .reduce((acc, a) => acc + (a.records||[]).reduce((s, r) => s + faltaEquivalente(r.estado), 0), 0);
+        };
+        const getSemesterCounts = () => {
+          const counts = SEM_LABELS.reduce((acc,l)=>{ acc[l]=0; return acc; }, {});
+          (DataStore.state.students||[]).forEach(s=>{ if (counts.hasOwnProperty(s.semestre)) counts[s.semestre]++; });
+          return counts;
+        };
 
         // ======= ESTUDIANTES (CRUD) =======
         function renderStudentsPage(){
@@ -828,6 +850,14 @@
             <h1 class="text-3xl font-bold text-primary">Estudiantes</h1>
             <div class="mt-4 flex flex-wrap gap-3 items-center">
               <input id="stu-search" type="text" placeholder="Buscar por matrícula o nombre" class="bg-surface border border-default rounded-lg px-3 py-2 text-sm w-72" />
+              <select id="stu-sem-filter" class="bg-surface border border-default rounded-lg px-3 py-2 text-sm">
+                <option value="">Todos los semestres</option>
+                <option>PRIMER SEMESTRE</option>
+                <option>SEGUNDO SEMESTRE</option>
+                <option>TERCER SEMESTRE</option>
+                <option>CUARTO SEMESTRE</option>
+                <option>QUINTO SEMESTRE</option>
+              </select>
               <button id="btn-add-stu" class="bg-accent-1 text-white px-4 py-2 rounded-lg text-sm">Agregar Estudiante</button>
               <button id="btn-export-stu" class="bg-accent-2/20 text-accent-2 px-4 py-2 rounded-lg text-sm">Exportar CSV</button>
             </div>
@@ -836,6 +866,14 @@
                 <input id="f-mat" class="bg-primary border border-default rounded-lg px-3 py-2" placeholder="Matrícula" />
                 <input id="f-nom" class="bg-primary border border-default rounded-lg px-3 py-2" placeholder="Nombre" />
                 <input id="f-ape" class="bg-primary border border-default rounded-lg px-3 py-2" placeholder="Apellidos" />
+                <select id="f-sem" class="bg-primary border border-default rounded-lg px-3 py-2">
+                  <option value="">Sin semestre</option>
+                  <option>PRIMER SEMESTRE</option>
+                  <option>SEGUNDO SEMESTRE</option>
+                  <option>TERCER SEMESTRE</option>
+                  <option>CUARTO SEMESTRE</option>
+                  <option>QUINTO SEMESTRE</option>
+                </select>
                 <select id="f-grp" multiple class="bg-primary border border-default rounded-lg px-3 py-2">
                   ${groups.map(g=>`<option value="${g.id}">${g.nombre} (${g.materia})</option>`).join('')}
                 </select>
@@ -850,6 +888,7 @@
                     <tr>
                       <th class="p-2 text-left text-secondary text-xs uppercase">Matrícula</th>
                       <th class="p-2 text-left text-secondary text-xs uppercase">Nombre</th>
+                      <th class="p-2 text-left text-secondary text-xs uppercase">Semestre</th>
                       <th class="p-2 text-left text-secondary text-xs uppercase">Grupos</th>
                       <th class="p-2 text-left text-secondary text-xs uppercase">Acciones</th>
                     </tr>
@@ -862,12 +901,18 @@
           const renderRows = (term='') => {
             const body = byIdSel('stu-tbody');
             const termLc = term.trim().toLowerCase();
-            const filtered = list.filter(s => !termLc || s.matricula.toLowerCase().includes(termLc) || fmtName(s).toLowerCase().includes(termLc));
+            const semFilter = byIdSel('stu-sem-filter').value || '';
+            const filtered = list.filter(s => {
+              const matchText = !termLc || s.matricula.toLowerCase().includes(termLc) || fmtName(s).toLowerCase().includes(termLc);
+              const matchSem = !semFilter || (s.semestre === semFilter);
+              return matchText && matchSem;
+            });
             body.innerHTML = filtered.map(s => {
               const gs = s.grupos.map(id => groups.find(g=>g.id===id)?.nombre || id).join(', ');
               return `<tr>
                 <td class="p-2 text-sm font-medium">${s.matricula}</td>
                 <td class="p-2 text-sm">${fmtName(s)}</td>
+                <td class="p-2 text-sm">${s.semestre || ''}</td>
                 <td class="p-2 text-sm">${gs}</td>
                 <td class="p-2 text-sm">
                   <button data-edit="${s.id}" class="text-accent-2 mr-2">Editar</button>
@@ -879,6 +924,7 @@
           renderRows();
 
           byIdSel('stu-search').addEventListener('input', e => renderRows(e.target.value));
+          byIdSel('stu-sem-filter').addEventListener('change', () => renderRows(byIdSel('stu-search').value));
           const form = byIdSel('stu-form');
           byIdSel('btn-add-stu').addEventListener('click', ()=>{ form.dataset.editing=''; form.classList.remove('hidden'); byIdSel('f-mat').value=''; byIdSel('f-nom').value=''; byIdSel('f-ape').value=''; qsa('#f-grp option').forEach(o=>o.selected=false); });
           byIdSel('f-cancel').addEventListener('click', ()=> form.classList.add('hidden'));
@@ -886,6 +932,7 @@
             const matricula = byIdSel('f-mat').value.trim();
             const nombre = byIdSel('f-nom').value.trim();
             const apellidos = byIdSel('f-ape').value.trim();
+            const semestre = byIdSel('f-sem').value.trim();
             const gruposSel = qsa('#f-grp option:checked').map(o=>o.value);
             if (!matricula || !nombre || !apellidos) return alert('Completa matrícula, nombre y apellidos');
             const editingId = form.dataset.editing;
@@ -893,9 +940,9 @@
             if (dupe) return alert('Matrícula duplicada');
             if (editingId) {
               const s = DataStore.state.students.find(s=>s.id===editingId); if (!s) return;
-              Object.assign(s, { matricula, nombre, apellidos, grupos: gruposSel });
+              Object.assign(s, { matricula, nombre, apellidos, semestre: semestre || '', grupos: gruposSel });
             } else {
-              DataStore.state.students.push({ id: uid('s'), matricula, nombre, apellidos, grupos: gruposSel });
+              DataStore.state.students.push({ id: uid('s'), matricula, nombre, apellidos, semestre: semestre || '', grupos: gruposSel });
             }
             DataStore.save(); form.classList.add('hidden'); renderRows(byIdSel('stu-search').value);
           });
@@ -905,6 +952,7 @@
               const s = DataStore.state.students.find(x=>x.id===t.dataset.edit); if (!s) return;
               form.dataset.editing = s.id; form.classList.remove('hidden');
               byIdSel('f-mat').value = s.matricula; byIdSel('f-nom').value = s.nombre; byIdSel('f-ape').value = s.apellidos;
+              byIdSel('f-sem').value = s.semestre || '';
               qsa('#f-grp option').forEach(o=>o.selected = s.grupos.includes(o.value));
             }
             if (t.dataset.del){
@@ -916,7 +964,7 @@
             }
           });
           byIdSel('btn-export-stu').addEventListener('click', ()=>{
-            const rows = [['matricula','nombre','apellidos','grupos']].concat(DataStore.state.students.map(s=>[s.matricula,s.nombre,s.apellidos,(s.grupos||[]).join('|')]));
+            const rows = [['matricula','nombre','apellidos','semestre','grupos']].concat(DataStore.state.students.map(s=>[s.matricula,s.nombre,s.apellidos,s.semestre,(s.grupos||[]).join('|')]));
             const ws = XLSX.utils.aoa_to_sheet(rows); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'estudiantes');
             XLSX.writeFile(wb, 'estudiantes.csv');
           });
@@ -1118,7 +1166,25 @@
           // Ya está la UI; conectamos eventos de archivo y mapeo
           const fileInput = byIdSel('file-upload'); if (!fileInput) return;
           let parsed = []; let headers = [];
+          let workbook = null; let seminarioNames = []; let seminarioData = [];
           const toArray = (ws) => XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+          const normalize = (s='') => (s||'').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,'').toLowerCase();
+          const findSeminarioSheet = (wb) => {
+            if (!wb) return null;
+            // Prefer exact-ish match. Acepta variantes: 'distribucion seminario', 'disribucion seminario'
+            const target1 = 'distribucionseminario';
+            const target2 = 'disribucionseminario';
+            for (const name of wb.SheetNames) {
+              const n = normalize(name);
+              if (n === target1 || n === target2) return name;
+            }
+            // Fallback: contiene 'seminario' y 'distri' o 'disri'
+            for (const name of wb.SheetNames) {
+              const n = normalize(name);
+              if (n.includes('seminario') && (n.includes('distri') || n.includes('disri'))) return name;
+            }
+            return null;
+          };
           const guessMap = () => {
             // heurística simple
             const h = headers.map(x=>x.toLowerCase());
@@ -1128,6 +1194,7 @@
               apellidos: headers[h.indexOf('apellidos')] || headers[h.indexOf('apellido')] || headers[2]
             };
           };
+
           const renderStep2 = () => {
             // Rellenar selects existentes en el DOM
             const selects = qsa('#content-step-2 select');
@@ -1139,16 +1206,25 @@
           };
           const parseFile = async (file) => {
             const buf = await file.arrayBuffer();
-            const wb = XLSX.read(buf, { type: 'array' });
+            const wb = XLSX.read(buf, { type: 'array' }); workbook = wb;
             const ws = wb.Sheets[wb.SheetNames[0]];
             const aoa = toArray(ws);
             headers = (aoa.shift()||[]).map(h => String(h||'').trim());
             parsed = aoa.filter(r => r.some(c=>String(c).trim()!==''));
-            goToStep(2); renderStep2();
+            // Permanecer en Paso 1 para permitir extracción desde el botón
+            // Step 2 se renderizará cuando el usuario presione "Siguiente"
           };
+
           fileInput.onchange = (e)=>{ const f = e.target.files?.[0]; if (f) parseFile(f); };
           const drop = byIdSel('dropzone');
           if (drop) drop.ondrop = (e)=>{ e.preventDefault(); const f = e.dataTransfer?.files?.[0]; if (f) parseFile(f); };
+
+          // Asegurar render de Step 2 al avanzar
+          const btnStep2 = byIdSel('btn-goto-step2');
+          if (btnStep2) btnStep2.addEventListener('click', () => {
+            if (!headers.length) { alert('Primero selecciona o arrastra un archivo.'); return; }
+            renderStep2();
+          });
 
           byIdSel('btn-goto-step3')?.addEventListener('click', ()=>{
             // Validar
@@ -1186,6 +1262,121 @@
             });
             DataStore.save();
           }, { once: true });
+
+          // Extraer nombres de hoja "DISRIBUCIÓN SEMINARIO" columna B
+          const btnExtract = byIdSel('btn-extract-seminario');
+          const btnDownload = byIdSel('btn-download-seminario');
+          const btnImport = byIdSel('btn-import-seminario');
+          const out = byIdSel('seminario-output');
+          async function ensureWorkbook() {
+            if (workbook) return workbook;
+            const f = fileInput.files?.[0];
+            if (!f) { alert('Primero selecciona o arrastra un archivo.'); return null; }
+            const buf = await f.arrayBuffer();
+            workbook = XLSX.read(buf, { type: 'array' });
+            return workbook;
+          }
+          function extractColumnB(ws) {
+            const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+            const names = [];
+            // Saltar la primera fila (encabezado) comenzando desde la segunda
+            for (let r = range.s.r + 1; r <= range.e.r; r++) {
+              const cellAddr = XLSX.utils.encode_cell({ r, c: 1 }); // Columna B = index 1
+              const cell = ws[cellAddr];
+              const v = (cell && cell.v != null) ? String(cell.v).trim() : '';
+              if (v) names.push(v);
+            }
+            return names;
+          }
+          if (btnExtract) btnExtract.addEventListener('click', async () => {
+            const wb = await ensureWorkbook(); if (!wb) return;
+            let sheetName = findSeminarioSheet(wb);
+            let notice = '';
+            if (!sheetName) {
+              // Fallback a la primera hoja si no se encuentra (útil para CSV)
+              sheetName = wb.SheetNames[0];
+              notice = ' (no se encontró la hoja específica; se usó la primera hoja)';
+            }
+            const ws = wb.Sheets[sheetName];
+            const colB = extractColumnB(ws).filter(Boolean);
+            if (!colB.length) { out.textContent = 'La columna B está vacía.'; return; }
+            // Agrupar por semestre según marcadores dentro de la misma columna B
+            const SEM_LABELS = ['PRIMER SEMESTRE','SEGUNDO SEMESTRE','TERCER SEMESTRE','CUARTO SEMESTRE','QUINTO SEMESTRE'];
+            const labelByNorm = Object.fromEntries(SEM_LABELS.map(l => [normalize(l), l]));
+            let currentSem = null; seminarioData = []; seminarioNames = [];
+            colB.forEach(v => {
+              const n = normalize(v);
+              if (labelByNorm[n]) { currentSem = labelByNorm[n]; return; }
+              // Es un nombre (encabezado 'Nombre' ya se omitió en extractColumnB)
+              seminarioData.push({ nombre: v, semestre: currentSem || 'SIN SEMESTRE' });
+              seminarioNames.push(v);
+            });
+            // Estadísticas
+            const counts = SEM_LABELS.reduce((acc,l)=>{ acc[l]=0; return acc; }, {});
+            let sinSem = 0;
+            seminarioData.forEach(r => { if (counts.hasOwnProperty(r.semestre)) counts[r.semestre]++; else sinSem++; });
+            // Render
+            const cards = SEM_LABELS.map(l => `<div class=\"bg-surface border border-default rounded-xl p-3\"><div class=\"text-secondary text-xs\">${l}</div><div class=\"text-xl font-bold\">${counts[l]}</div></div>`).join('');
+            const totalTxt = `<div class=\"font-medium mb-2\">${seminarioData.length} nombres extraídos de \"${sheetName}\" (columna B)${notice}. ${sinSem?`<span class=\\\"text-warning\\\">${sinSem} sin semestre</span>`:''}</div>`;
+            const list = `<div class=\"max-h-56 overflow-auto bg-primary border border-default rounded-lg p-3 mt-2\">` + seminarioData.map(r=>`<div>${r.nombre} <span class=\"text-secondary text-xs\">(${r.semestre})</span></div>`).join('') + `</div>`;
+            const chart = `<div class=\"mt-3\"><canvas id=\"seminarioChart\" height=\"120\"></canvas></div>`;
+            out.innerHTML = `<div class=\"grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3\">${cards}</div>` + totalTxt + chart + list;
+            if (btnDownload) btnDownload.classList.remove('hidden');
+            if (btnImport) btnImport.classList.remove('hidden');
+            // Dibujar gráfica
+            try {
+              const ctx = document.getElementById('seminarioChart');
+              if (ctx && window.Chart) {
+                const labels = SEM_LABELS;
+                const data = labels.map(l => counts[l]);
+                const isDark = document.documentElement.classList.contains('dark');
+                const accent1 = isDark ? '#4FD1C5' : '#3EBBAF';
+                new Chart(ctx, { type: 'bar', data: { labels, datasets: [{ label: 'Alumnos', data, backgroundColor: accent1 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } } });
+              }
+            } catch (e) { /* no-op */ }
+          });
+          if (btnDownload) btnDownload.addEventListener('click', () => {
+            if (!seminarioData.length) return;
+            const ws = XLSX.utils.aoa_to_sheet([["nombre","semestre"]].concat(seminarioData.map(r=>[r.nombre, r.semestre])));
+            const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'nombres');
+            XLSX.writeFile(wb, 'seminario_nombres.csv');
+          });
+          if (btnImport) btnImport.addEventListener('click', () => {
+            if (!seminarioData.length) { alert('Primero extrae los nombres.'); return; }
+            const existingMatSet = new Set(DataStore.state.students.map(s=>s.matricula));
+            const existingNameSet = new Set(DataStore.state.students.map(s=>`${s.nombre.trim().toLowerCase()}|${s.apellidos.trim().toLowerCase()}`));
+            const pad = (n)=>String(n).padStart(3,'0');
+            let seq = 1;
+            const genMat = ()=>{
+              let m;
+              do { m = `SEM${pad(seq++)}`; } while (existingMatSet.has(m));
+              existingMatSet.add(m); return m;
+            };
+            const parseName = (full)=>{
+              const parts = full.trim().split(/\s+/);
+              if (parts.length === 1) return { nombre: parts[0], apellidos: '' };
+              if (parts.length === 2) return { nombre: parts[0], apellidos: parts[1] };
+              const apellidos = parts.slice(-2).join(' ');
+              const nombre = parts.slice(0, -2).join(' ');
+              return { nombre, apellidos };
+            };
+            let added = 0, skipped = 0;
+            seminarioData.forEach(item=>{
+              const { nombre, apellidos } = parseName(item.nombre);
+              const key = `${nombre.trim().toLowerCase()}|${apellidos.trim().toLowerCase()}`;
+              if (!nombre) { skipped++; return; }
+              if (existingNameSet.has(key)) { skipped++; return; }
+              const matricula = genMat();
+              DataStore.state.students.push({ id: uid('s'), matricula, nombre, apellidos, semestre: item.semestre || '', grupos: [] });
+              existingNameSet.add(key);
+              added++;
+            });
+            DataStore.save();
+            out.innerHTML += `<div class="mt-3 text-secondary">Agregados: <strong>${added}</strong>. Omitidos por duplicado/vacío: <strong>${skipped}</strong>.</div>`;
+            // Navegar a Estudiantes para verlos
+            const link = document.querySelector('.nav-link[data-page="estudiantes"]');
+            if (link) link.click();
+          });
         }
 
         // ======= REPORTES =======
@@ -1195,6 +1386,7 @@
           const totalGrp = DataStore.state.groups.length;
           const totalAsis = DataStore.state.attendance.length;
           const totalGrades = DataStore.state.grades.length;
+          const faltasEq = totalFaltasEquivalentes();
           container.innerHTML = `
             <h1 class="text-3xl font-bold text-primary">Reportes</h1>
             <div class="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -1202,10 +1394,20 @@
               <div class="bg-surface p-6 rounded-2xl border border-default"><div class="text-secondary text-sm">Grupos</div><div class="text-3xl font-bold">${totalGrp}</div></div>
               <div class="bg-surface p-6 rounded-2xl border border-default"><div class="text-secondary text-sm">Registros de Asistencia</div><div class="text-3xl font-bold">${totalAsis}</div></div>
               <div class="bg-surface p-6 rounded-2xl border border-default"><div class="text-secondary text-sm">Registros de Calificaciones</div><div class="text-3xl font-bold">${totalGrades}</div></div>
+              <div class="bg-surface p-6 rounded-2xl border border-default md:col-span-2"><div class="text-secondary text-sm">Faltas equivalentes (2 retardos = 1 falta)</div><div class="text-3xl font-bold">${faltasEq.toFixed(1)}</div></div>
             </div>
             <div class="mt-6 bg-surface p-6 rounded-2xl border border-default">
               <h3 class="text-lg font-semibold mb-4">Distribución de Promedios (último periodo por grupo)</h3>
               <div class="h-80"><canvas id="reportGradesChart"></canvas></div>
+            </div>
+            <div class="mt-6 bg-surface p-6 rounded-2xl border border-default">
+              <h3 class="text-lg font-semibold mb-4">Estudiantes por Semestre</h3>
+              <div class="flex flex-wrap gap-3 mb-3">
+                <button id="btn-export-sem-csv" class="bg-accent-2/20 text-accent-2 px-4 py-2 rounded-lg text-sm hover:bg-accent-2/30">Descargar CSV</button>
+                <button id="btn-export-sem-pdf" class="bg-surface border border-default px-4 py-2 rounded-lg text-sm">Imprimir/PDF</button>
+              </div>
+              <div id="sem-kpis" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-4"></div>
+              <div class="h-64"><canvas id="reportSemChart"></canvas></div>
             </div>`;
           // Construir una serie simple: promedio general por grupo
           const labels = DataStore.state.groups.map(g=>g.nombre);
@@ -1220,6 +1422,37 @@
           setTimeout(()=>{
             const ctx = byIdSel('reportGradesChart'); if (!ctx || !window.Chart) return;
             new Chart(ctx, { type:'bar', data:{ labels, datasets:[{ label:'Promedio', data: values, backgroundColor: accent1 }] }, options:{ responsive:true, maintainAspectRatio:false, scales:{ y:{ min:0, max:100 } } } });
+            // Semestre KPIs + chart
+            const counts = getSemesterCounts();
+            const kpiHost = byIdSel('sem-kpis');
+            if (kpiHost) kpiHost.innerHTML = SEM_LABELS.map(l=>`<div class="bg-primary rounded-xl p-3 border border-default"><div class="text-secondary text-xs">${l}</div><div class="text-xl font-bold">${counts[l]||0}</div></div>`).join('');
+            const sctx = byIdSel('reportSemChart');
+            if (sctx && window.Chart) new Chart(sctx, { type:'bar', data:{ labels: SEM_LABELS, datasets:[{ label:'Estudiantes', data: SEM_LABELS.map(l=>counts[l]||0), backgroundColor: accent1 }] }, options:{ responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true, precision:0 } } } });
+            // Exportadores
+            const btnCsv = byIdSel('btn-export-sem-csv');
+            const btnPdf = byIdSel('btn-export-sem-pdf');
+            if (btnCsv) btnCsv.onclick = () => {
+              const rows = [['semestre','estudiantes']].concat(SEM_LABELS.map(l=>[l, counts[l]||0]));
+              const ws = XLSX.utils.aoa_to_sheet(rows); const wb = XLSX.utils.book_new();
+              XLSX.utils.book_append_sheet(wb, ws, 'semestres'); XLSX.writeFile(wb, 'reporte_semestres.csv');
+            };
+            if (btnPdf) btnPdf.onclick = () => {
+              const win = window.open('', '', 'width=800,height=900');
+              const now = new Date();
+              const tableRows = SEM_LABELS.map(l=>`<tr><td style="padding:8px;border:1px solid #ddd;">${l}</td><td style="padding:8px;border:1px solid #ddd;">${counts[l]||0}</td></tr>`).join('');
+              const html = `<!doctype html><html><head><title>Reporte por Semestre</title>
+                <meta charset="utf-8"><style>body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial;padding:24px;color:#111726}
+                h1{margin:0 0 8px 0;font-size:20px} .muted{color:#6B7280;font-size:12px}
+                table{border-collapse:collapse;width:100%;margin-top:12px}
+                thead td{background:#f3f4f6;font-weight:600}
+                </style></head><body>
+                <h1>Estudiantes por Semestre</h1>
+                <div class="muted">Generado: ${now.toLocaleString()}</div>
+                <table><thead><tr><td style="padding:8px;border:1px solid #ddd;">Semestre</td><td style="padding:8px;border:1px solid #ddd;">Estudiantes</td></tr></thead><tbody>${tableRows}</tbody></table>
+                <script>window.onload = function(){ window.print(); setTimeout(()=>window.close(), 300); }<\/script>
+                </body></html>`;
+              win.document.write(html); win.document.close();
+            };
           }, 0);
         }
 
