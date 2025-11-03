@@ -1107,6 +1107,18 @@
           const dateInput = byIdSel('select-fecha');
           const modeSel = byIdSel('att-mode');
           const deleteBtn = byIdSel('btn-delete-date');
+          const fb = window.FB;
+          const fbGet = async (path) => {
+            try { if (!fb) return null; const snap = await fb.db.ref(path).get(); return snap.val(); } catch(e){ return null; }
+          };
+          const fbSet = async (path, val) => {
+            if (!fb) throw new Error('Firebase no inicializado');
+            await fb.db.ref(path).set(val);
+          };
+          const fbRemove = async (path) => {
+            if (!fb) throw new Error('Firebase no inicializado');
+            await fb.db.ref(path).remove();
+          };
           const updateAttendanceSummary = () => {
             const rows = qsa('#page-asistencias tbody tr');
             let P=0, F=0, R=0;
@@ -1118,7 +1130,6 @@
                 else if (val==='R') R++;
               });
             } else {
-              // Sumar desde las columnas numéricas renderizadas en historial
               rows.forEach(tr => {
                 P += +(qs('td.col-P', tr)?.textContent||'0');
                 F += +(qs('td.col-F', tr)?.textContent||'0');
@@ -1132,11 +1143,17 @@
             set('sum-retardos', String(R));
             set('sum-total', (total % 1) ? total.toFixed(1) : String(total));
           };
-          const loadList = () => {
+          const loadList = async () => {
             const gid = groupSel.value || DataStore.state.groups[0]?.id; if (!gid) return;
             const date = dateInput.value;
             const stu = DataStore.state.students.filter(s=>s.grupos?.includes(gid));
-            const existing = DataStore.state.attendance.find(a=>a.groupId===gid && a.date===date);
+            let existing = null;
+            const fbData = await fbGet(`attendance/${gid}/${date}`);
+            if (fbData && Array.isArray(fbData.records)) {
+              existing = fbData;
+            } else {
+              existing = DataStore.state.attendance.find(a=>a.groupId===gid && a.date===date);
+            }
             const mode = (modeSel?.value||'fecha');
             tableBody.innerHTML = stu.map((s,i)=>{
               const rec = existing?.records.find(r=>r.studentId===s.id);
@@ -1174,6 +1191,37 @@
             });
           };
           if (loadBtn) loadBtn.onclick = loadList; loadList();
+          if (saveBtn) saveBtn.onclick = async () => {
+            const gid = groupSel.value || DataStore.state.groups[0]?.id; if (!gid) return;
+            const date = dateInput.value; if (!date) { alert('Selecciona una fecha.'); return; }
+            const rows = qsa('#page-asistencias tbody tr');
+            const records = rows.map(tr => {
+              const studentId = tr.getAttribute('data-sid');
+              const estado = qs('input[type=radio]:checked', tr)?.value || 'P';
+              const comentario = qs('input[type="text"]', tr)?.value || '';
+              return { studentId, estado, comentario };
+            });
+            const payload = { groupId: gid, date, records };
+            try {
+              await fbSet(`attendance/${gid}/${date}`, payload);
+              const idx = DataStore.state.attendance.findIndex(a=>a.groupId===gid && a.date===date);
+              if (idx>=0) DataStore.state.attendance[idx] = payload; else DataStore.state.attendance.push(payload);
+              DataStore.save();
+              alert('Asistencia guardada en la nube.');
+            } catch(e){ alert('Error al guardar en Firebase. Verifica autenticación y reglas.'); }
+          };
+          if (deleteBtn) deleteBtn.onclick = async () => {
+            const gid = groupSel.value || DataStore.state.groups[0]?.id; if (!gid) return;
+            const date = dateInput.value; if (!date) { alert('Selecciona una fecha.'); return; }
+            if (!confirm('¿Borrar registros de esta fecha?')) return;
+            try {
+              await fbRemove(`attendance/${gid}/${date}`);
+              DataStore.state.attendance = DataStore.state.attendance.filter(a=>!(a.groupId===gid && a.date===date));
+              DataStore.save();
+              await loadList();
+              alert('Registro de asistencia eliminado.');
+            } catch(e){ alert('Error al eliminar en Firebase.'); }
+          };
           if (printBtn) printBtn.onclick = () => {
             const gid = groupSel.value || DataStore.state.groups[0]?.id; const date = dateInput.value; const mode = byIdSel('att-mode')?.value || 'fecha';
             const group = DataStore.state.groups.find(g=>g.id===gid);
