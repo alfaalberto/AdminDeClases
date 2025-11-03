@@ -16,7 +16,7 @@
     <!-- Google Font (Inter) -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-    <!-- Tailwind CSS CDN -->
+    <!-- Tailwind CSS CDN (restaurado temporalmente) -->
     <script src="https://cdn.tailwindcss.com" defer></script>
 
     <!-- Lucide Icons CDN -->
@@ -29,6 +29,36 @@
     <script src="https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js" defer></script>
     <!-- SheetJS (XLSX/CSV parser) -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
+
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" defer></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js" defer></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js" defer></script>
+    <script>
+      window.addEventListener('DOMContentLoaded', function(){
+        try {
+          if (window.firebase && window.firebase.initializeApp) {
+            var cfg = window.firebaseConfig || {
+              apiKey: "",
+              authDomain: "admindeclases.firebaseapp.com",
+              databaseURL: "https://admindeclases-default-rtdb.firebaseio.com",
+              projectId: "admindeclases",
+              storageBucket: "admindeclases.appspot.com",
+              messagingSenderId: "",
+              appId: ""
+            };
+            if (cfg.apiKey) {
+              var app = firebase.initializeApp(cfg);
+              var auth = firebase.auth();
+              var db = firebase.database();
+              auth.signInAnonymously().catch(function(){});
+              window.FB = { app: app, auth: auth, db: db };
+            } else {
+              console.warn('Definir window.firebaseConfig con apiKey para inicializar Firebase');
+            }
+          }
+        } catch (e) { console.error(e); }
+      });
+    </script>
 
     <!-- Evitar FOUC del tema: setear clase dark/light antes del paint -->
     <script>
@@ -44,6 +74,20 @@
     </script>
 
     <style>
+        @media print {
+          @page { size: A4 landscape; margin: 12mm; }
+          body { color: #111726; font-size: 12px; }
+          h1 { font-size: 18px; margin-bottom: 6px; }
+          .muted { font-size: 11px; }
+          table { width: 100%; border-collapse: collapse; }
+          th, td { border: 1px solid #ccc !important; padding: 6px !important; font-size: 11px; }
+          thead th { background: #f3f4f6; color: #374151; }
+          tfoot td { font-weight: 700; }
+          /* Ocultar elementos no relevantes en impresión */
+          #sidebar, header, .nav-link, .bg-surface.p-4.border, .bg-surface.rounded-2xl.p-4.border { display: none !important; }
+          /* Evitar cortes bruscos */
+          tr { page-break-inside: avoid; }
+        }
         :root {
             --bg-primary-light: #F8F9FC;
             --bg-surface-light: #FFFFFF;
@@ -290,17 +334,26 @@
                             <label for="select-fecha" class="block text-sm font-medium text-secondary mb-1">Fecha</label>
                             <input type="date" id="select-fecha" class="w-full bg-surface border border-default rounded-lg px-3 py-2 text-primary focus:outline-none focus:ring-2 focus:ring-accent-2/50 focus:border-accent-2">
                         </div>
-                        <button id="btn-load-list" class="self-end bg-accent-1 text-white px-4 py-2 rounded-lg font-medium hover:brightness-110 transition-all">Cargar Lista</button>
+                        <div class="flex gap-2 self-end">
+                            <button id="btn-load-list" class="bg-accent-1 text-white px-4 py-2 rounded-lg font-medium hover:brightness-110 transition-all">Cargar Lista</button>
+                            <button id="btn-delete-date" class="bg-error/10 text-error px-4 py-2 rounded-lg font-medium hover:bg-error/20 transition-all">Borrar Fecha</button>
+                        </div>
                     </div>
 
                     <div class="bg-surface rounded-2xl p-4 border border-default flex flex-wrap gap-4 justify-between items-center">
                         <p class="text-secondary text-sm"><span class="font-bold text-primary">Tip:</span> Usa el teclado para marcar rápido (P, F, R, J) o usa los botones.</p>
-                        <div>
+                        <div class="flex items-center gap-3">
+                            <label for="att-mode" class="text-sm text-secondary">Totales:</label>
+                            <select id="att-mode" class="bg-surface border border-default rounded-lg px-2 py-1 text-sm">
+                                <option value="fecha">Fecha actual</option>
+                                <option value="hist">Historial del grupo</option>
+                            </select>
+                            <button id="att-print" class="text-sm font-medium bg-surface border border-default px-3 py-1.5 rounded-lg hover:bg-primary">Imprimir PDF</button>
                             <button id="mark-all-present" class="text-sm font-medium text-accent-1 hover:text-accent-2">Marcar Todos como Presente</button>
                         </div>
                     </div>
 
-                    <div class="bg-surface rounded-2xl shadow-sm border border-default overflow-hidden">
+                    <div class="bg-surface rounded-2xl shadow-sm border border-default overflow-hidden" id="att-print-area">
                         <div class="overflow-x-auto">
                             <table class="w-full min-w-[700px]">
                                 <thead class="bg-primary border-b border-default">
@@ -310,7 +363,10 @@
                                         <th class="py-3 px-4 text-left text-xs font-semibold text-secondary uppercase tracking-wider">Nombre Completo</th>
                                         <th class="py-3 px-4 text-center text-xs font-semibold text-secondary uppercase tracking-wider">Estado (P, F, R, J)</th>
                                         <th class="py-3 px-4 text-left text-xs font-semibold text-secondary uppercase tracking-wider">Comentarios</th>
-                                        <th class="py-3 px-4 text-left text-xs font-semibold text-secondary uppercase tracking-wider">Acción</th>
+                                        <th class="py-3 px-4 text-center text-xs font-semibold text-secondary uppercase tracking-wider">Asistencia</th>
+                                        <th class="py-3 px-4 text-center text-xs font-semibold text-secondary uppercase tracking-wider">Faltas</th>
+                                        <th class="py-3 px-4 text-center text-xs font-semibold text-secondary uppercase tracking-wider">Retardos</th>
+                                        <th class="py-3 px-4 text-center text-xs font-semibold text-secondary uppercase tracking-wider">Total Faltas</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-default text-primary">
@@ -327,7 +383,10 @@
                                             </div>
                                         </td>
                                         <td class="py-3 px-4"><input type="text" placeholder="Añadir nota..." class="w-full text-sm bg-transparent border-b border-default focus:outline-none focus:border-accent-1"></td>
-                                        <td class="py-3 px-4"><button class="p-1 text-secondary hover:text-accent-2"><i data-lucide="paperclip" class="w-4 h-4"></i></button></td>
+                                        <td class="py-3 px-4 text-center text-sm font-medium">0</td>
+                                        <td class="py-3 px-4 text-center text-sm font-medium">0</td>
+                                        <td class="py-3 px-4 text-center text-sm font-medium">0</td>
+                                        <td class="py-3 px-4 text-center text-sm font-bold">0</td>
                                     </tr>
                                     <tr class="hover:bg-primary transition-colors">
                                         <td class="py-3 px-4 text-sm text-secondary">2</td>
@@ -372,9 +431,21 @@
                                             </div>
                                         </td>
                                         <td class="py-3 px-4"><input type="text" value="Cita médica (adjunto)" class="w-full text-sm bg-transparent border-b border-default focus:outline-none focus:border-accent-1"></td>
-                                        <td class="py-3 px-4"><button class="p-1 text-accent-2 hover:text-accent-1"><i data-lucide="paperclip" class="w-4 h-4"></i></button></td>
+                                        <td class="py-3 px-4 text-center text-sm font-medium">0</td>
+                                        <td class="py-3 px-4 text-center text-sm font-medium">0</td>
+                                        <td class="py-3 px-4 text-center text-sm font-medium">0</td>
+                                        <td class="py-3 px-4 text-center text-sm font-bold">0</td>
                                     </tr>
                                 </tbody>
+                              <tfoot id="att-summary" class="bg-primary border-t border-default">
+                                <tr>
+                                  <td class="py-3 px-4 text-xs text-secondary font-semibold" colspan="5">Totales del grupo</td>
+                                  <td class="py-3 px-4 text-center text-sm font-bold" id="sum-asistencia">0</td>
+                                  <td class="py-3 px-4 text-center text-sm font-bold" id="sum-faltas">0</td>
+                                  <td class="py-3 px-4 text-center text-sm font-bold" id="sum-retardos">0</td>
+                                  <td class="py-3 px-4 text-center text-sm font-extrabold" id="sum-total">0</td>
+                                </tr>
+                              </tfoot>
                             </table>
                         </div>
                         <div class="p-4 bg-primary border-t border-default flex justify-end">
@@ -395,58 +466,27 @@
                         </div>
                         <div class="flex-1 min-w-[150px]">
                             <label for="select-periodo-cal" class="block text-sm font-medium text-secondary mb-1">Periodo</label>
-                            <select id="select-periodo-cal" class="w-full bg-surface border border-default rounded-lg px-3 py-2 text-primary focus:outline-none focus:ring-2 focus:ring-accent-2/50 focus:border-accent-2">
-                                <option>Parcial 2</option>
-                                <option>Parcial 1</option>
-                                <option>Final</option>
+                            <select id="select-periodo-cal" disabled class="w-full bg-surface border border-default rounded-lg px-3 py-2 text-primary opacity-60 cursor-not-allowed">
+                                <option selected>Final</option>
                             </select>
                         </div>
                         <button class="self-end bg-accent-1 text-white px-4 py-2 rounded-lg font-medium hover:brightness-110 transition-all">Cargar Rúbrica</button>
+                        <button id="cal-print" class="text-sm font-medium bg-surface border border-default px-3 py-1.5 rounded-lg hover:bg-primary">Imprimir PDF</button>
+                        <button id="btn-clear-grades" class="text-sm font-medium bg-error/10 text-error border border-error/30 px-3 py-1.5 rounded-lg hover:bg-error/20">Limpiar calificaciones</button>
                     </div>
 
-                    <div class="bg-surface rounded-2xl shadow-sm border border-default overflow-hidden">
+                    <div class="bg-surface rounded-2xl shadow-sm border border-default overflow-hidden" id="cal-print-area">
                         <div class="overflow-x-auto">
-                            <table class="w-full min-w-[800px] grades-table">
+                            <table class="w-full min-w-[600px] grades-table">
                                 <thead class="bg-primary border-b border-default">
                                     <tr>
                                         <th class="py-3 px-4 text-left text-xs font-semibold text-secondary uppercase">Matrícula</th>
                                         <th class="py-3 px-4 text-left text-xs font-semibold text-secondary uppercase">Nombre</th>
-                                        <th class="py-3 px-4 text-center text-xs font-semibold text-secondary uppercase">Tareas (20%)</th>
-                                        <th class="py-3 px-4 text-center text-xs font-semibold text-secondary uppercase">Examen (50%)</th>
-                                        <th class="py-3 px-4 text-center text-xs font-semibold text-secondary uppercase">Proyecto (30%)</th>
-                                        <th class="py-3 px-4 text-center text-xs font-semibold text-secondary uppercase">Promedio</th>
+                                        <th class="py-3 px-4 text-center text-xs font-semibold text-secondary uppercase">Calificación Final</th>
                                         <th class="py-3 px-4 text-center text-xs font-semibold text-secondary uppercase">Estado</th>
                                     </tr>
                                 </thead>
-                                <tbody class="divide-y divide-default text-primary">
-                                    <tr class="grade-row hover:bg-primary transition-colors">
-                                        <td class="py-3 px-4 text-sm font-medium">A001</td>
-                                        <td class="py-3 px-4 text-sm">Aguilar, Juan Pérez</td>
-                                        <td class="p-2"><input type="number" class="grade-input w-20 text-center bg-primary border border-default rounded-lg p-1" value="95" data-weight="0.20" min="0" max="100"></td>
-                                        <td class="p-2"><input type="number" class="grade-input w-20 text-center bg-primary border border-default rounded-lg p-1" value="80" data-weight="0.50" min="0" max="100"></td>
-                                        <td class="p-2"><input type="number" class="grade-input w-20 text-center bg-primary border border-default rounded-lg p-1" value="100" data-weight="0.30" min="0" max="100"></td>
-                                        <td class="py-3 px-4 text-center text-sm font-bold grade-avg">89.5</td>
-                                        <td class="py-3 px-4 text-center text-sm"><span class="px-2 py-0.5 rounded-full bg-success/20 text-success text-xs font-medium">Aprobado</span></td>
-                                    </tr>
-                                    <tr class="grade-row hover:bg-primary transition-colors">
-                                        <td class="py-3 px-4 text-sm font-medium">A002</td>
-                                        <td class="py-3 px-4 text-sm">García, Maria López</td>
-                                        <td class="p-2"><input type="number" class="grade-input w-20 text-center bg-primary border border-default rounded-lg p-1" value="100" data-weight="0.20" min="0" max="100"></td>
-                                        <td class="p-2"><input type="number" class="grade-input w-20 text-center bg-primary border border-default rounded-lg p-1" value="75" data-weight="0.50" min="0" max="100"></td>
-                                        <td class="p-2"><input type="number" class="grade-input w-20 text-center bg-primary border border-default rounded-lg p-1" value="85" data-weight="0.30" min="0" max="100"></td>
-                                        <td class="py-3 px-4 text-center text-sm font-bold grade-avg">83.0</td>
-                                        <td class="py-3 px-4 text-center text-sm"><span class="px-2 py-0.5 rounded-full bg-success/20 text-success text-xs font-medium">Aprobado</span></td>
-                                    </tr>
-                                    <tr class="grade-row hover:bg-primary transition-colors">
-                                        <td class="py-3 px-4 text-sm font-medium">A003</td>
-                                        <td class="py-3 px-4 text-sm">Hernández, Luis Martínez</td>
-                                        <td class="p-2"><input type="number" class="grade-input w-20 text-center bg-primary border border-default rounded-lg p-1" value="50" data-weight="0.20" min="0" max="100"></td>
-                                        <td class="p-2"><input type="number" class="grade-input w-20 text-center bg-primary border border-default rounded-lg p-1" value="65" data-weight="0.50" min="0" max="100"></td>
-                                        <td class="p-2"><input type="number" class="grade-input w-20 text-center bg-primary border border-default rounded-lg p-1" value="" data-weight="0.30" min="0" max="100"></td>
-                                        <td class="py-3 px-4 text-center text-sm font-bold grade-avg">42.5</td>
-                                        <td class="py-3 px-4 text-center text-sm"><span class="px-2 py-0.5 rounded-full bg-warning/20 text-warning text-xs font-medium">En Riesgo</span></td>
-                                    </tr>
-                                </tbody>
+                                <tbody class="divide-y divide-default text-primary"></tbody>
                             </table>
                         </div>
                         <div class="p-4 bg-primary border-t border-default flex justify-between items-center">
@@ -681,39 +721,7 @@
 
         // Calificaciones: cálculo automático y validación
         const gradesTable = document.querySelector('.grades-table');
-        if (gradesTable) {
-          gradesTable.addEventListener('input', (e) => {
-            const t = e.target;
-            if (!(t instanceof HTMLInputElement) || !t.classList.contains('grade-input')) return;
-            const row = t.closest('.grade-row');
-            if (!row) return;
-            const inputs = row.querySelectorAll('.grade-input');
-            const avgCell = row.querySelector('.grade-avg');
-            const statusCell = row.querySelector('td:nth-child(7) span');
-            let totalAvg = 0, allFilled = true;
-            inputs.forEach(input => {
-              const value = parseFloat(input.value);
-              const weight = parseFloat(input.dataset.weight || '0');
-              if (input.value === '') { allFilled = false; }
-              if (isNaN(value) || value < 0 || value > 100) {
-                input.classList.add('border-error','ring-2','ring-error/50');
-              } else {
-                input.classList.remove('border-error','ring-2','ring-error/50');
-                totalAvg += value * weight;
-              }
-            });
-            if (avgCell) avgCell.textContent = allFilled ? totalAvg.toFixed(1) : totalAvg.toFixed(1) + '...';
-            if (statusCell) {
-              if (totalAvg < 70) {
-                statusCell.textContent = 'En Riesgo';
-                statusCell.className = 'px-2 py-0.5 rounded-full bg-warning/20 text-warning text-xs font-medium';
-              } else {
-                statusCell.textContent = 'Aprobado';
-                statusCell.className = 'px-2 py-0.5 rounded-full bg-success/20 text-success text-xs font-medium';
-              }
-            }
-          });
-        }
+        if (gradesTable) {}
 
         // Atajos de teclado para asistencia: P/F/R/J en fila enfocada
         document.addEventListener('keydown', (e) => {
@@ -838,6 +846,24 @@
           const counts = SEM_LABELS.reduce((acc,l)=>{ acc[l]=0; return acc; }, {});
           (DataStore.state.students||[]).forEach(s=>{ if (counts.hasOwnProperty(s.semestre)) counts[s.semestre]++; });
           return counts;
+        };
+
+        // Estadísticas históricas por alumno dentro del grupo
+        const getStudentAttendanceStats = (groupId, studentId) => {
+          let P=0, F=0, R=0, J=0;
+          (DataStore.state.attendance||[]).forEach(a => {
+            if (a.groupId !== groupId) return;
+            (a.records||[]).forEach(r => {
+              if (r.studentId === studentId) {
+                if (r.estado === 'P') P++;
+                else if (r.estado === 'F') F++;
+                else if (r.estado === 'R') R++;
+                else if (r.estado === 'J') J++;
+              }
+            });
+          });
+          const totalFaltas = F + R/2;
+          return { P, F, R, J, totalFaltas };
         };
 
         // ======= ESTUDIANTES (CRUD) =======
@@ -1064,17 +1090,54 @@
           const groupSel = byIdSel('select-grupo');
           const tableBody = qs('#page-asistencias tbody');
           const loadBtn = byIdSel('btn-load-list');
+          const printBtn = byIdSel('att-print');
           const saveBtn = byIdSel('btn-save-attendance');
           const dateInput = byIdSel('select-fecha');
+          const modeSel = byIdSel('att-mode');
+          const deleteBtn = byIdSel('btn-delete-date');
+          const updateAttendanceSummary = () => {
+            const rows = qsa('#page-asistencias tbody tr');
+            let P=0, F=0, R=0;
+            if ((modeSel?.value||'fecha') === 'fecha') {
+              rows.forEach(tr => {
+                const val = qs('input[type=radio]:checked', tr)?.value || 'P';
+                if (val==='P') P++;
+                else if (val==='F') F++;
+                else if (val==='R') R++;
+              });
+            } else {
+              // Sumar desde las columnas numéricas renderizadas en historial
+              rows.forEach(tr => {
+                P += +(qs('td.col-P', tr)?.textContent||'0');
+                F += +(qs('td.col-F', tr)?.textContent||'0');
+                R += +(qs('td.col-R', tr)?.textContent||'0');
+              });
+            }
+            const total = F + R/2;
+            const set = (id, v) => { const el = byIdSel(id); if (el) el.textContent = v; };
+            set('sum-asistencia', String(P));
+            set('sum-faltas', String(F));
+            set('sum-retardos', String(R));
+            set('sum-total', (total % 1) ? total.toFixed(1) : String(total));
+          };
           const loadList = () => {
             const gid = groupSel.value || DataStore.state.groups[0]?.id; if (!gid) return;
             const date = dateInput.value;
             const stu = DataStore.state.students.filter(s=>s.grupos?.includes(gid));
             const existing = DataStore.state.attendance.find(a=>a.groupId===gid && a.date===date);
+            const mode = (modeSel?.value||'fecha');
             tableBody.innerHTML = stu.map((s,i)=>{
               const rec = existing?.records.find(r=>r.studentId===s.id);
               const val = rec?.estado || 'P';
               const note = rec?.comentario || '';
+              let P=0,F=0,R=0,totalEquiv=0;
+              if (mode === 'fecha') {
+                P = val==='P'?1:0; F = val==='F'?1:0; R = val==='R'?1:0; totalEquiv = F + R/2;
+              } else {
+                const stats = getStudentAttendanceStats(gid, s.id);
+                P = stats.P; F = stats.F; R = stats.R; totalEquiv = stats.totalFaltas;
+              }
+              const totalCell = (totalEquiv % 1) ? totalEquiv.toFixed(1) : totalEquiv;
               return `<tr class="hover:bg-primary transition-colors" data-sid="${s.id}">
                 <td class="py-3 px-4 text-sm text-secondary">${i+1}</td>
                 <td class="py-3 px-4 text-sm font-medium">${s.matricula}</td>
@@ -1086,12 +1149,77 @@
                   <input type="radio" id="${s.id}_j" name="st_${s.id}" value="J" ${val==='J'?'checked':''}><label for="${s.id}_j">J</label>
                 </div></td>
                 <td class="py-3 px-4"><input type="text" class="w-full text-sm bg-transparent border-b border-default focus:outline-none focus:border-accent-1" value="${note}"></td>
-                <td class="py-3 px-4"><button class="p-1 text-secondary hover:text-accent-2"><i data-lucide="paperclip" class="w-4 h-4"></i></button></td>
+                <td class="py-3 px-4 text-center text-sm font-medium col-P">${P}</td>
+                <td class="py-3 px-4 text-center text-sm font-medium col-F">${F}</td>
+                <td class="py-3 px-4 text-center text-sm font-medium col-R">${R}</td>
+                <td class="py-3 px-4 text-center text-sm font-bold col-T">${totalCell}</td>
               </tr>`;
             }).join('');
             if (window.lucide && lucide.createIcons) lucide.createIcons();
+            updateAttendanceSummary();
+            tableBody.addEventListener('change', (e)=>{
+              if (e.target && e.target.matches('input[type=radio]')) updateAttendanceSummary();
+            });
           };
           if (loadBtn) loadBtn.onclick = loadList; loadList();
+          if (printBtn) printBtn.onclick = () => {
+            const gid = groupSel.value || DataStore.state.groups[0]?.id; const date = dateInput.value; const mode = byIdSel('att-mode')?.value || 'fecha';
+            const group = DataStore.state.groups.find(g=>g.id===gid);
+            const title = `Asistencia - ${group?group.nombre+' ('+group.materia+')':''}`;
+            // Clonar la tabla y convertir controles a texto
+            const tableEl = qs('#page-asistencias table');
+            const clone = tableEl ? tableEl.cloneNode(true) : null;
+            if (clone) {
+              qsa('.attendance-radio-group', clone).forEach(g => {
+                const checked = g.querySelector('input[type=radio]:checked');
+                const td = g.closest('td'); if (td) td.textContent = checked ? checked.value : '';
+              });
+              qsa('input[type="text"]', clone).forEach(inp => {
+                const td = inp.closest('td'); if (td) td.textContent = inp.value || '';
+              });
+            }
+            const nowTxt = new Date().toLocaleString();
+            const html = `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>
+              <style>body{font-family:Inter,system-ui,Segoe UI,Roboto,Arial;padding:24px;color:#111726}
+              h1{margin:0 0 6px 0;font-size:18px}
+              .muted{color:#6B7280;font-size:12px}
+              table{border-collapse:collapse;width:100%;margin-top:12px}
+              th,td{border:1px solid #ddd;padding:8px;font-size:12px;text-align:left}
+              thead th{text-transform:uppercase;font-size:11px;color:#6B7280}
+              tfoot td{font-weight:700}
+              .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+              .signatures{display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;margin-top:20px}
+              .sign{margin-top:40px;text-align:center}
+              .line{border-top:1px solid #999;margin-top:48px;padding-top:6px;font-size:12px}
+              </style></head><body>
+              <div class="header">
+                <div>
+                  <h1>${title}</h1>
+                  <div class="muted">Fecha de lista: ${date || '(sin seleccionar)'} • Totales: ${mode==='fecha'?'Fecha actual':'Historial del grupo'}</div>
+                </div>
+                <div class="muted">Generado: ${nowTxt}</div>
+              </div>
+              ${clone ? clone.outerHTML : ''}
+              <div class="signatures">
+                <div class="sign"><div class="line">Docente</div></div>
+                <div class="sign"><div class="line">Coordinación</div></div>
+                <div class="sign"><div class="line">Dirección</div></div>
+              </div>
+              <script>window.onload=function(){window.print(); setTimeout(()=>window.close(), 300);};<\/script>
+            </body></html>`;
+            const w = window.open('', '', 'width=1000,height=800'); if (w){ w.document.write(html); w.document.close(); }
+          };
+          if (modeSel) modeSel.onchange = loadList;
+          if (deleteBtn) deleteBtn.onclick = () => {
+            const gid = groupSel.value; const date = dateInput.value;
+            const idx = DataStore.state.attendance.findIndex(a=>a.groupId===gid && a.date===date);
+            if (idx<0) { alert('No hay registros para esa fecha.'); return; }
+            if (!confirm(`¿Borrar asistencia del ${date}? Esta acción no se puede deshacer.`)) return;
+            DataStore.state.attendance.splice(idx,1);
+            DataStore.save();
+            alert('Asistencia de la fecha borrada');
+            loadList();
+          };
           if (saveBtn) saveBtn.onclick = () => {
             const gid = groupSel.value; const date = dateInput.value;
             const records = qsa('#page-asistencias tbody tr').map(tr=>{
@@ -1103,8 +1231,12 @@
             const idx = DataStore.state.attendance.findIndex(a=>a.groupId===gid && a.date===date);
             if (idx>=0) DataStore.state.attendance[idx] = { groupId: gid, date, records };
             else DataStore.state.attendance.push({ groupId: gid, date, records });
-            DataStore.save(); alert('Asistencia guardada');
+            DataStore.save();
+            alert('Asistencia guardada');
+            // Refrescar para recalcular columnas de resumen (Asistencia, Faltas, Retardos, Total Faltas)
+            loadList();
           };
+
         }
 
         // ======= CALIFICACIONES =======
@@ -1118,40 +1250,123 @@
           const table = qs('#page-calificaciones .grades-table tbody');
           const saveBtn = byIdSel('btn-save-grades');
           const publishBtn = byIdSel('btn-publish-grades');
+          const printGradesBtn = byIdSel('cal-print');
+          const clearBtn = byIdSel('btn-clear-grades');
           const load = () => {
-            const gid = groupSel.value || DataStore.state.groups[0]?.id; const per = periodSel.value || 'Parcial 1';
+            const gid = groupSel.value || DataStore.state.groups[0]?.id; const per = 'Final';
             const stu = DataStore.state.students.filter(s=>s.grupos?.includes(gid));
             const grade = DataStore.state.grades.find(g=>g.groupId===gid && g.periodo===per);
             table.innerHTML = stu.map(s=>{
               const rec = grade?.records.find(r=>r.studentId===s.id) || {};
-              const t = rec.tareas ?? '';
-              const e = rec.examen ?? '';
-              const p = rec.proyecto ?? '';
-              const avg = isFinite(rec.promedio) ? rec.promedio.toFixed(1) : '';
-              const status = rec.estado || (isFinite(rec.promedio) ? (rec.promedio<70?'En Riesgo':'Aprobado') : '');
-              const badge = status==='En Riesgo' ? 'bg-warning/20 text-warning' : 'bg-success/20 text-success';
+              const finalVal = rec.promedio ?? '';
+              const status = isFinite(finalVal) ? (finalVal < 8 ? 'En Riesgo' : 'Aprobado') : '';
+              const badge = status==='En Riesgo' ? 'bg-error/20 text-error' : 'bg-success/20 text-success';
               return `<tr class="grade-row hover:bg-primary transition-colors" data-sid="${s.id}">
                 <td class="py-3 px-4 text-sm font-medium">${s.matricula}</td>
                 <td class="py-3 px-4 text-sm">${fmtName(s)}</td>
-                <td class="p-2"><input type="number" class="grade-input w-20 text-center bg-primary border border-default rounded-lg p-1" value="${t}" data-weight="0.20" min="0" max="100"></td>
-                <td class="p-2"><input type="number" class="grade-input w-20 text-center bg-primary border border-default rounded-lg p-1" value="${e}" data-weight="0.50" min="0" max="100"></td>
-                <td class="p-2"><input type="number" class="grade-input w-20 text-center bg-primary border border-default rounded-lg p-1" value="${p}" data-weight="0.30" min="0" max="100"></td>
-                <td class="py-3 px-4 text-center text-sm font-bold grade-avg">${avg}</td>
+                <td class="p-2 text-center"><input type="number" class="grade-final w-24 text-center bg-primary border border-default rounded-lg p-1" value="${finalVal}" min="0" max="10" step="0.1"></td>
                 <td class="py-3 px-4 text-center text-sm"><span class="px-2 py-0.5 rounded-full ${badge} text-xs font-medium">${status}</span></td>
               </tr>`;
             }).join('');
           };
           load();
-          groupSel.onchange = load; periodSel.onchange = load;
+          const calTBody = table;
+          if (calTBody && !calTBody.dataset.live) {
+            calTBody.dataset.live = '1';
+            calTBody.addEventListener('input', (e)=>{
+              const t = e.target;
+              if (!(t instanceof HTMLInputElement) || !t.classList.contains('grade-final')) return;
+              const tr = t.closest('tr');
+              const span = tr?.querySelector('td:last-child span');
+              let v = parseFloat(t.value);
+              if (isNaN(v) || v < 0 || v > 10) {
+                t.classList.add('border-error','ring-2');
+                return;
+              }
+              t.classList.remove('border-error','ring-2');
+              if (span) {
+                if (v < 8) {
+                  span.textContent = 'En Riesgo';
+                  span.className = 'px-2 py-0.5 rounded-full bg-error/20 text-error text-xs font-medium';
+                } else {
+                  span.textContent = 'Aprobado';
+                  span.className = 'px-2 py-0.5 rounded-full bg-success/20 text-success text-xs font-medium';
+                }
+              }
+            });
+            calTBody.addEventListener('blur', (e)=>{
+              const t = e.target;
+              if (!(t instanceof HTMLInputElement) || !t.classList.contains('grade-final')) return;
+              let v = parseFloat(t.value);
+              if (isNaN(v)) { t.value = ''; return; }
+              if (v < 0) v = 0; if (v > 10) v = 10; t.value = String(v);
+              const tr = t.closest('tr');
+              const span = tr?.querySelector('td:last-child span');
+              if (span) {
+                if (v < 8) {
+                  span.textContent = 'En Riesgo';
+                  span.className = 'px-2 py-0.5 rounded-full bg-error/20 text-error text-xs font-medium';
+                } else {
+                  span.textContent = 'Aprobado';
+                  span.className = 'px-2 py-0.5 rounded-full bg-success/20 text-success text-xs font-medium';
+                }
+              }
+            }, true);
+          }
+          groupSel.onchange = load; /* periodSel está fijo en 'Final' */
+          printGradesBtn?.addEventListener('click', ()=>{
+            const gid = groupSel.value || DataStore.state.groups[0]?.id; const per = 'Final';
+            const group = DataStore.state.groups.find(g=>g.id===gid);
+            const title = `Calificaciones - ${group?group.nombre+' ('+group.materia+')':''}`;
+            // Clonar la tabla y convertir inputs a texto
+            const tableEl = qs('#page-calificaciones .grades-table');
+            const clone = tableEl ? tableEl.cloneNode(true) : null;
+            if (clone) {
+              qsa('.grade-final', clone).forEach(inp => {
+                const td = inp.parentElement; if (td) td.textContent = inp.value;
+              });
+            }
+            const nowTxt = new Date().toLocaleString();
+            const html = `<!doctype html><html><head><meta charset=\"utf-8\"><title>${title}</title>
+              <style>
+                @page { size: A4 landscape; margin: 12mm; }
+                body{font-family:Inter,system-ui,Segoe UI,Roboto,Arial;padding:24px;color:#111726}
+                h1{margin:0 0 6px 0;font-size:18px}
+                .muted{color:#6B7280;font-size:12px}
+                table{border-collapse:collapse;width:100%;margin-top:12px}
+                th,td{border:1px solid #ddd;padding:8px;font-size:12px;text-align:left}
+                thead th{text-transform:uppercase;font-size:11px;color:#6B7280}
+                .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+                .signatures{display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;margin-top:20px}
+                .sign{margin-top:40px;text-align:center}
+                .line{border-top:1px solid #999;margin-top:48px;padding-top:6px;font-size:12px}
+              </style></head><body>
+              <div class=\"header\">
+                <div>
+                  <h1>${title}</h1>
+                  <div class=\"muted\">Periodo: ${per}</div>
+                </div>
+                <div class=\"muted\">Generado: ${nowTxt}</div>
+              </div>
+              ${clone ? clone.outerHTML : ''}
+              <div class=\"signatures\">
+                <div class=\"sign\"><div class=\"line\">Docente</div></div>
+                <div class=\"sign\"><div class=\"line\">Coordinación</div></div>
+                <div class=\"sign\"><div class=\"line\">Dirección</div></div>
+              </div>
+              <script>window.onload=function(){window.print(); setTimeout(()=>window.close(), 300);};<\/script>
+            </body></html>`;
+            const w = window.open('', '', 'width=1000,height=800'); if (w){ w.document.write(html); w.document.close(); }
+          });
           if (saveBtn) saveBtn.onclick = () => {
-            const gid = groupSel.value; const per = periodSel.value;
+            const gid = groupSel.value; const per = 'Final';
             const records = qsa('#page-calificaciones tbody tr').map(tr=>{
               const sid = tr.getAttribute('data-sid');
-              const inputs = qsa('.grade-input', tr);
-              const tareas = parseFloat(inputs[0].value)||0, examen=parseFloat(inputs[1].value)||0, proyecto=parseFloat(inputs[2].value)||0;
-              const promedio = +(tareas*0.2 + examen*0.5 + proyecto*0.3).toFixed(1);
-              const estado = promedio<70 ? 'En Riesgo' : 'Aprobado';
-              return { studentId: sid, tareas, examen, proyecto, promedio, estado };
+              const input = qs('.grade-final', tr);
+              const val = parseFloat(input?.value || '');
+              const promedio = isNaN(val) ? 0 : +val.toFixed(1);
+              const estado = isNaN(val) ? '' : (promedio < 70 ? 'En Riesgo' : 'Aprobado');
+              return { studentId: sid, promedio, estado };
             });
             const idx = DataStore.state.grades.findIndex(g=>g.groupId===gid && g.periodo===per);
             if (idx>=0) DataStore.state.grades[idx] = { groupId: gid, periodo: per, records };
